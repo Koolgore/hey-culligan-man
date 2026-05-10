@@ -3449,6 +3449,13 @@
 
           // Touch drag: fire shift immediately on touchstart so the user can
           // lift their finger onto a placement candidate in a single gesture.
+          //
+          // IMPORTANT: the touchend listener must be registered on `document`
+          // BEFORE performShift() is called, because performShift → renderBoard()
+          // removes this tile element from the DOM. On mobile (especially iOS),
+          // when the touch-start target is removed mid-gesture the browser
+          // cancels the touch sequence — so any listener registered after that
+          // point will never fire.
           const touchShiftHandler = (e) => {
             if (e.touches.length !== 1) return;
             e.preventDefault(); // suppress the synthetic click that follows
@@ -3457,19 +3464,15 @@
             delete tileEl._touchShiftHandler;
             const touch = e.touches[0];
             cursorLastClientPos = { x: touch.clientX, y: touch.clientY };
-            if (shouldSendGuestAction()) {
-              sendOnlineAction({ kind: "shiftTile", row: coord.row, col: coord.col });
-              return;
-            }
-            completeFirstGameTip("shift");
-            performShift(coord.row, coord.col);
-            // After shift, wait for finger-lift to auto-place if over a candidate
+
+            // Register touchend NOW, before any DOM re-render, so the touch
+            // sequence stays alive even after the tile element is removed.
             const onEnd = (ev) => {
               document.removeEventListener("touchend", onEnd);
               if (!tileInHand) return;
               const t = ev.changedTouches[0];
-              // Use elementsFromPoint (plural) so the floating tile-cursor div
-              // that follows the finger doesn't block the placement candidate beneath it.
+              // elementsFromPoint (plural) pierces through the floating
+              // tile-cursor div that follows the finger.
               const allEls = document.elementsFromPoint(t.clientX, t.clientY);
               const candEl = allEls.reduce((found, el) => found || el.closest(".tile.placement"), null);
               if (candEl && typeof candEl._placeHandler === "function") {
@@ -3478,6 +3481,13 @@
               }
             };
             document.addEventListener("touchend", onEnd, { once: true, passive: true });
+
+            if (shouldSendGuestAction()) {
+              sendOnlineAction({ kind: "shiftTile", row: coord.row, col: coord.col });
+              return;
+            }
+            completeFirstGameTip("shift");
+            performShift(coord.row, coord.col); // re-renders board — touchend already registered above
           };
           tileEl._touchShiftHandler = touchShiftHandler;
           tileEl.addEventListener("touchstart", touchShiftHandler, { passive: false });
