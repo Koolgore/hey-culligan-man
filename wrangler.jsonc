@@ -1,0 +1,7 @@
+{
+  "name": "hey-culligan-man",
+  "compatibility_date": "2026-05-10",
+  "assets": {
+    "directory": "./dist"
+  }
+}

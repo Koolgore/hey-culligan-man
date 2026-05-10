@@ -643,44 +643,8 @@
   //      appears under the finger and follows it via existing touchmove)
   //   2. touchend → if finger is over a .placement candidate, place it there.
   //      If not, the tile stays in hand and the existing tap-to-place still works.
-  function initTileDragTouch() {
-    if (!boardContainer) return;
-
-    boardContainer.addEventListener("touchstart", (e) => {
-      // Only single-finger touches during the shift-pickup phase
-      if (e.touches.length !== 1) return;
-      if (gamePhase !== "AWAITING_SHIFT" || tileInHand) return;
-
-      const touch = e.touches[0];
-      const el = document.elementFromPoint(touch.clientX, touch.clientY);
-      const tileEl = el && el.closest(".tile.selectable");
-      if (!tileEl || typeof tileEl._shiftHandler !== "function") return;
-
-      // Suppress the synthetic click so the handler doesn't fire twice
-      e.preventDefault();
-
-      cursorLastClientPos = { x: touch.clientX, y: touch.clientY };
-      // Fire the shift handler — performShift runs synchronously for humans,
-      // rendering the gap and placement candidates before this handler returns.
-      tileEl._shiftHandler({ clientX: touch.clientX, clientY: touch.clientY });
-
-      // Now listen for finger-lift to auto-place if over a candidate
-      const onEnd = (ev) => {
-        document.removeEventListener("touchend", onEnd);
-        if (!tileInHand) return; // already placed or cancelled
-        const t = ev.changedTouches[0];
-        const target = document.elementFromPoint(t.clientX, t.clientY);
-        const candEl = target && target.closest(".tile.placement");
-        if (candEl && typeof candEl._placeHandler === "function") {
-          cursorLastClientPos = { x: t.clientX, y: t.clientY };
-          candEl._placeHandler({ clientX: t.clientX, clientY: t.clientY });
-        }
-        // If no candidate under finger, tile stays in hand — user can tap normally
-      };
-      document.addEventListener("touchend", onEnd, { once: true, passive: true });
-
-    }, { passive: false }); // passive: false so we can call preventDefault
-  }
+  // (initTileDragTouch removed — touch handlers are now attached directly on each
+  //  selectable tile element inside showShiftOptions for reliable single-tap drag)
 
   function analyzeCpuMovePath(cpuPlayer, path) {
     const end = path[path.length - 1];
@@ -978,7 +942,6 @@
   const boardContainer = document.getElementById("board-container");
   const turnIndicator = document.getElementById("turn-indicator");
   initBoardZoom();
-  initTileDragTouch();
   const rollBtn = document.getElementById("roll-dice");
   const diceDisplay = document.getElementById("dice-display");
   const skipShiftBtn = document.getElementById("skip-shift");
@@ -2727,6 +2690,10 @@
         tile.removeEventListener("click", tile._shiftHandler);
         delete tile._shiftHandler;
       }
+      if (tile._touchShiftHandler) {
+        tile.removeEventListener("touchstart", tile._touchShiftHandler);
+        delete tile._touchShiftHandler;
+      }
       if (tile._rotateHandler) {
         tile.removeEventListener("click", tile._rotateHandler);
         delete tile._rotateHandler;
@@ -3479,6 +3446,40 @@
           };
           tileEl._shiftHandler = handler;
           tileEl.addEventListener("click", handler, { once: true });
+
+          // Touch drag: fire shift immediately on touchstart so the user can
+          // lift their finger onto a placement candidate in a single gesture.
+          const touchShiftHandler = (e) => {
+            if (e.touches.length !== 1) return;
+            e.preventDefault(); // suppress the synthetic click that follows
+            tileEl.removeEventListener("click", handler);
+            tileEl.removeEventListener("touchstart", touchShiftHandler);
+            delete tileEl._touchShiftHandler;
+            const touch = e.touches[0];
+            cursorLastClientPos = { x: touch.clientX, y: touch.clientY };
+            if (shouldSendGuestAction()) {
+              sendOnlineAction({ kind: "shiftTile", row: coord.row, col: coord.col });
+              return;
+            }
+            completeFirstGameTip("shift");
+            performShift(coord.row, coord.col);
+            // After shift, wait for finger-lift to auto-place if over a candidate
+            const onEnd = (ev) => {
+              document.removeEventListener("touchend", onEnd);
+              if (!tileInHand) return;
+              const t = ev.changedTouches[0];
+              const target = document.elementFromPoint(t.clientX, t.clientY);
+              const candEl = target && target.closest(".tile.placement");
+              if (candEl && typeof candEl._placeHandler === "function") {
+                cursorLastClientPos = { x: t.clientX, y: t.clientY };
+                candEl._placeHandler({ clientX: t.clientX, clientY: t.clientY });
+              }
+            };
+            document.addEventListener("touchend", onEnd, { once: true, passive: true });
+          };
+          tileEl._touchShiftHandler = touchShiftHandler;
+          tileEl.addEventListener("touchstart", touchShiftHandler, { passive: false });
+
           highlightedTiles.push(tileEl);
         }
       });
