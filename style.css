@@ -713,6 +713,19 @@ body.game-active::before {
   font-size: 1.16rem;
 }
 
+.continue-btn {
+  width: min(300px, 100%);
+  min-height: 3.35rem;
+  font-size: 1.16rem;
+  background: linear-gradient(135deg, #2a6496, #1a4a72);
+  color: #fff;
+  border-color: #1a4a72;
+}
+
+.continue-btn:hover {
+  background: linear-gradient(135deg, #1a4a72, #0f2e47);
+}
+
 .menu-secondary {
   width: auto;
   min-height: 0;

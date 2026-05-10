@@ -755,6 +755,7 @@
   }
 
   const PERSIST_DAYS = 365;
+  const SAVED_GAME_KEY = "culligan_saved_game";
 
   function readCookieValue(key) {
     try {
@@ -1948,6 +1949,7 @@
     hideFirstGameTip();
     gameUI.classList.add("hidden");
     menuDiv.classList.remove("hidden");
+    updateContinueButton();
   }
 
   /**
@@ -4017,6 +4019,7 @@
     skipShiftBtn.disabled = false;
     updateTurnIndicator();
     gamePhase = "AWAITING_ROLL";
+    saveLocalGame();
     // If next player is CPU, automatically roll dice
     const nextPlayer = players[currentPlayerIndex];
     if (nextPlayer.isCPU) {
@@ -4193,6 +4196,7 @@
    */
   function declareWinner(player) {
     gamePhase = "GAME_OVER";
+    clearLocalGame();
     clearHighlights();
     completeFirstGameTips();
     actionText.textContent = `${player.name} wins! Congratulations!`;
@@ -4514,6 +4518,7 @@
   }
 
   function startGame(playerCount, cpuCount, names = null) {
+    clearLocalGame();
     beginFirstGameTips();
     const config = normalizeGameConfig(playerCount, cpuCount);
     const playerNames = names || readSetupNames(config);
@@ -4541,6 +4546,71 @@
     // If first player is CPU, auto roll
     if (players[0].isCPU) {
       setTimeout(() => rollDice(), 500);
+    }
+  }
+
+  // ── Local game save / resume ──────────────────────────────────────────────
+
+  function saveLocalGame() {
+    if (onlineSession) return; // don't clobber local save with online state
+    if (gamePhase === "INIT" || gamePhase === "GAME_OVER") return;
+    try {
+      writePersistedJSON(SAVED_GAME_KEY, serializeGameState());
+    } catch (e) { /* storage full or unavailable */ }
+  }
+
+  function clearLocalGame() {
+    removePersistedValue(SAVED_GAME_KEY);
+    const btn = document.getElementById("continue-game");
+    if (btn) btn.classList.add("hidden");
+  }
+
+  function resumeLocalGame() {
+    const state = readPersistedJSON(SAVED_GAME_KEY, null);
+    if (!state) return;
+    beginFirstGameTips();
+    hideOverlay();
+    boardState = new Map((state.board || []).map(([key, tile]) => [key, deepCopy(tile)]));
+    finishRow = state.finishRow ?? 2;
+    finishCol = state.finishCol ?? 3;
+    players = deepCopy(state.players || []).map((p) => ({
+      ...p,
+      extraTurnPending: Boolean(p.extraTurnPending),
+    }));
+    currentPlayerIndex = state.currentPlayerIndex || 0;
+    diceRoll = Array.isArray(state.diceRoll) ? [...state.diceRoll] : [0, 0];
+    gamePhase = state.gamePhase || "AWAITING_ROLL";
+    lastGameConfig = state.lastGameConfig || lastGameConfig;
+    document.body.classList.add("game-active");
+    menuDiv.classList.add("hidden");
+    gameUI.classList.remove("hidden");
+    actionText.textContent = state.actionText || "";
+    clearDiceDisplay();
+    skipShiftBtn.classList.add("hidden");
+    clearTempControls();
+    renderBoard();
+    updateTurnIndicator();
+    rollBtn.disabled = false;
+    if (diceRoll[0] && diceRoll[1]) renderDiceResult(diceRoll[0], diceRoll[1]);
+    if (gamePhase === "AWAITING_ROLL") {
+      const cur = players[currentPlayerIndex];
+      if (cur && cur.isCPU) {
+        setTimeout(() => rollDice(), 500);
+      } else {
+        showRollPrompt();
+      }
+    }
+  }
+
+  function updateContinueButton() {
+    const btn = document.getElementById("continue-game");
+    if (!btn) return;
+    const saved = readPersistedJSON(SAVED_GAME_KEY, null);
+    const hasGame = saved && saved.gamePhase && saved.gamePhase !== "INIT" && saved.gamePhase !== "GAME_OVER";
+    btn.classList.toggle("hidden", !hasGame);
+    if (hasGame && saved.players) {
+      const names = saved.players.map((p) => p.name).join(", ");
+      btn.title = `Resume: ${names}`;
     }
   }
 
@@ -4636,6 +4706,13 @@
       setSetupMode(button.dataset.mode);
     });
   });
+
+  // Continue game button
+  const continueGameBtn = document.getElementById("continue-game");
+  if (continueGameBtn) {
+    continueGameBtn.addEventListener("click", resumeLocalGame);
+  }
+  updateContinueButton();
 
   if (menuInstructionsBtn) {
     menuInstructionsBtn.addEventListener("click", showInstructions);
