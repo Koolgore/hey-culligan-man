@@ -68,6 +68,14 @@ export default {
     const parts = url.pathname.split("/").filter(Boolean);
 
     try {
+      if (request.method === "GET" && parts.length === 0) {
+        return json({
+          ok: true,
+          service: "Hey Culligan Man signaling",
+          routes: ["POST /rooms", "GET /rooms/:code", "POST /rooms/:code/answer"],
+        });
+      }
+
       if (request.method === "POST" && parts[0] === "rooms" && parts.length === 1) {
         const body = await readJson(request);
         if (!body || !body.offer) return json({ error: "Missing offer." }, { status: 400 });

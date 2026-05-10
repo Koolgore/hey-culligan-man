@@ -1481,11 +1481,15 @@
         "content-type": "application/json",
         ...(options.headers || {}),
       },
-    }).then(async (response) => {
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
-      return data;
-    });
+    })
+      .catch(() => {
+        throw new Error(`Could not reach the online signaling server at ${signalingUrl}. Make sure the Cloudflare Worker is deployed and the URL is correct.`);
+      })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+        return data;
+      });
   }
 
   function createPeerConnection() {
