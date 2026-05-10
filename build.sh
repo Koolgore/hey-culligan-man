@@ -64,6 +64,7 @@ npx lightningcss-cli \
 
 # ── 4. Optimise PNGs ─────────────────────────────────────────────────────────
 echo "Optimising PNGs..."
+pip3 install --quiet pillow
 python3 - <<'PY'
 from pathlib import Path
 from PIL import Image
