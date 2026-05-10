@@ -3468,8 +3468,10 @@
               document.removeEventListener("touchend", onEnd);
               if (!tileInHand) return;
               const t = ev.changedTouches[0];
-              const target = document.elementFromPoint(t.clientX, t.clientY);
-              const candEl = target && target.closest(".tile.placement");
+              // Use elementsFromPoint (plural) so the floating tile-cursor div
+              // that follows the finger doesn't block the placement candidate beneath it.
+              const allEls = document.elementsFromPoint(t.clientX, t.clientY);
+              const candEl = allEls.reduce((found, el) => found || el.closest(".tile.placement"), null);
               if (candEl && typeof candEl._placeHandler === "function") {
                 cursorLastClientPos = { x: t.clientX, y: t.clientY };
                 candEl._placeHandler({ clientX: t.clientX, clientY: t.clientY });
