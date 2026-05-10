@@ -1,0 +1,15 @@
+.DS_Store
+Thumbs.db
+
+# Local backups and temporary archives
+backups/
+*.zip
+
+# Local editor/runtime noise
+.vscode/
+.idea/
+node_modules/
+__pycache__/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A playable browser version of Hey Culligan Man, a shifting-pipeline board game for local and online play."
+    />
+    <title>Hey Culligan Man</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Main menu shown on initial load -->
+    <div id="main-menu">
+      <img
+        class="banner-graphic menu-banner"
+        src="assets/culligan-banner.png"
+        alt="Hey Culligan Man Game"
+      />
+      <h1 class="sr-only">Hey Culligan Man</h1>
+      <form id="game-setup" class="setup-panel">
+        <div class="setup-section mode-section">
+          <div class="mode-tabs" role="group" aria-label="Game mode">
+            <button class="mode-btn active" type="button" data-mode="single" aria-pressed="true">Single Player</button>
+            <button class="mode-btn" type="button" data-mode="local" aria-pressed="false">Local Multiplayer</button>
+            <button class="mode-btn" type="button" data-mode="online" aria-pressed="false">Online Multiplayer</button>
+          </div>
+        </div>
+        <div class="setup-section settings-section">
+          <div class="setup-inputs">
+            <label class="setup-field" for="player-count-input">
+              <span>Players</span>
+              <div class="number-control">
+                <input id="player-count-input" type="number" min="1" max="4" step="1" value="2" inputmode="numeric" aria-label="Number of players" title="Click to change player count" />
+                <div class="number-stepper">
+                  <button class="number-step number-step-up" type="button" data-step-for="player-count-input" data-step="1" aria-label="Increase players"></button>
+                  <button class="number-step number-step-down" type="button" data-step-for="player-count-input" data-step="-1" aria-label="Decrease players"></button>
+                </div>
+              </div>
+            </label>
+            <label class="setup-field" for="cpu-count-input">
+              <span>CPUs</span>
+              <div class="number-control">
+                <input id="cpu-count-input" type="number" min="0" max="3" step="1" value="1" inputmode="numeric" aria-label="Number of CPUs" title="Click to change CPU count" />
+                <div class="number-stepper">
+                  <button class="number-step number-step-up" type="button" data-step-for="cpu-count-input" data-step="1" aria-label="Increase CPUs"></button>
+                  <button class="number-step number-step-down" type="button" data-step-for="cpu-count-input" data-step="-1" aria-label="Decrease CPUs"></button>
+                </div>
+              </div>
+            </label>
+          </div>
+          <div id="name-fields" class="name-fields" aria-label="Player names"></div>
+        </div>
+        <div class="setup-section online-section">
+          <div class="setup-section-label">Online Table</div>
+          <div class="online-menu-actions">
+            <button id="host-online" class="info-btn online-menu-btn" type="button">
+              Host Online
+            </button>
+            <button id="join-online" class="info-btn online-menu-btn" type="button">
+              Join Online
+            </button>
+          </div>
+        </div>
+        <div class="menu-actions">
+          <button id="start-game" class="menu-btn primary-start" type="submit">
+            Start Game
+          </button>
+          <div class="secondary-menu-actions">
+            <button id="menu-settings" class="info-btn menu-secondary" type="button">
+              Settings
+            </button>
+            <button id="menu-instructions" class="info-btn menu-secondary" type="button">
+              Instructions
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- Game UI displayed after menu selection -->
+    <div id="game-ui" class="hidden">
+      <!-- Top panel holds the turn indicator only. All other controls live in the announcer panel below. -->
+      <div id="top-panel">
+        <div class="top-left-actions">
+          <button id="game-instructions" class="top-help-btn top-icon-btn" type="button" aria-label="Instructions"></button>
+          <button id="game-settings" class="top-settings-btn" type="button" aria-label="Settings"></button>
+          <button id="exit-game" class="top-exit-btn top-icon-btn" type="button" aria-label="Exit game"></button>
+        </div>
+        <img
+          class="banner-graphic game-banner"
+          src="assets/culligan-banner.png"
+          alt=""
+          aria-hidden="true"
+        />
+        <span id="turn-indicator"></span>
+      </div>
+      <div id="board-container"></div>
+      <div id="tip-panel" class="first-tip-panel hidden" aria-live="polite">
+        <div>
+          <div id="tip-title" class="first-tip-title"></div>
+          <div id="tip-text"></div>
+        </div>
+        <button id="tip-dismiss" class="control-btn tip-dismiss" type="button">
+          Got It
+        </button>
+      </div>
+      <!-- Action panel acts as an announcer describing the current game state. Buttons are grouped underneath the message. -->
+      <div id="action-panel">
+        <div id="action-info">
+          <div id="turn-token" aria-hidden="true"></div>
+          <div id="action-text"></div>
+        </div>
+        <div id="controls-container">
+          <button id="roll-dice" class="control-btn">Roll</button>
+          <div id="dice-display"></div>
+          <button id="skip-shift" class="control-btn hidden">Skip Shift</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal overlays for bumping and placement, hidden by default -->
+    <div id="overlay" class="hidden"></div>
+
+    <script src="assets/tile-bounds.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>

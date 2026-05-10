@@ -1,0 +1,7 @@
+name = "hey-culligan-signaling"
+main = "signaling-worker.js"
+compatibility_date = "2026-04-28"
+
+[[kv_namespaces]]
+binding = "CULLIGAN_ROOMS"
+id = "replace-with-your-kv-namespace-id"
