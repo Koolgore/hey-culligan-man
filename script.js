@@ -543,12 +543,17 @@
   const USER_ZOOM_MIN_FACTOR = 1.0;   // can't zoom out past fit
   const USER_ZOOM_MAX_FACTOR = 3.0;
 
+  // How close to the minimum scale (as a ratio) before we snap to center.
+  // 1.08 = within 8% above the fit scale snaps back.
+  const USER_ZOOM_SNAP_BUFFER = 1.08;
+
   function applyBoardZoom(newScale, pivotX, pivotY) {
     const camera = boardContainer ? boardContainer.querySelector(".board-camera") : null;
     if (!camera) return;
 
     // Compute fit scale to enforce limits
     const grid = camera.querySelector(".board-grid");
+    let fitTarget = null;
     let minScale = 0.3;
     if (grid) {
       const s = getComputedStyle(grid);
@@ -556,12 +561,18 @@
       const cols = parseInt(s.getPropertyValue("--cols"), 10);
       const ts   = parseFloat(s.getPropertyValue("--tile-size"));
       if (Number.isFinite(rows) && Number.isFinite(cols) && Number.isFinite(ts)) {
-        const fit = computeBoardCameraTarget(rows, cols, ts);
-        minScale = fit.scale * USER_ZOOM_MIN_FACTOR;
-        newScale = Math.min(fit.scale * USER_ZOOM_MAX_FACTOR, newScale);
+        fitTarget = computeBoardCameraTarget(rows, cols, ts);
+        minScale  = fitTarget.scale * USER_ZOOM_MIN_FACTOR;
+        newScale  = Math.min(fitTarget.scale * USER_ZOOM_MAX_FACTOR, newScale);
       }
     }
     newScale = Math.max(minScale, newScale);
+
+    // Snap to centered fit when zoomed out to (or near) the minimum
+    if (fitTarget && newScale <= fitTarget.scale * USER_ZOOM_SNAP_BUFFER) {
+      moveBoardCamera(camera, fitTarget, true);
+      return;
+    }
 
     // Pivot: keep the world point under pivotX/pivotY fixed
     const oldScale = boardCamera.scale;
@@ -784,6 +795,10 @@
   let carriedTokenIndices = []; // player indices riding on a shifted tile
   let availableRotations = []; // rotated tile orientations for placement
   let rotationIndex = 0;
+  let activePlacementCoord = null;
+  let activePlacementRotating = false;
+  let activeBumpCoord = null;
+  let activeBumpRotating = false;
   let bumpVictim = null; // index of bumped player
   let recentlyPlacedTileKey = null;
   let lastTokenRects = new Map();
@@ -804,6 +819,7 @@
   let signalingUrl = DEFAULT_SIGNALING_URL;
   let onlineSession = null;
   let applyingRemoteState = false;
+  let applyingOnlineAction = false;
   // Delay (in milliseconds) between CPU actions to make its play feel more natural
   // Delay (in milliseconds) between CPU actions to make its play feel more natural
   // Small pause so CPU actions feel deliberate without dragging.
@@ -988,6 +1004,59 @@
     const player = players[currentPlayerIndex];
     if (!player || player.isCPU) return;
     actionText.textContent = "Click 'Roll' to begin your turn";
+  }
+
+  function onlineGuestIndex() {
+    return onlineSession && Number.isInteger(onlineSession.guestPlayerIndex)
+      ? onlineSession.guestPlayerIndex
+      : 1;
+  }
+
+  function onlineLocalSeatIndex() {
+    if (!onlineSession) return null;
+    if (onlineSession.role === "guest") {
+      return Number.isInteger(onlineSession.playerIndex) ? onlineSession.playerIndex : 1;
+    }
+    return null;
+  }
+
+  function isGuestControlledSeat(index = currentPlayerIndex) {
+    return Boolean(onlineSession && onlineSession.role === "guest" && index === onlineLocalSeatIndex());
+  }
+
+  function isRemoteGuestSeatOnHost(index = currentPlayerIndex) {
+    return Boolean(onlineSession && onlineSession.role === "host" && index === onlineGuestIndex());
+  }
+
+  function isCurrentPlayerLocallyControlled() {
+    const player = players[currentPlayerIndex];
+    if (!player || player.isCPU) return false;
+    if (!onlineSession) return true;
+    if (onlineSession.role === "host") return !isRemoteGuestSeatOnHost(currentPlayerIndex);
+    if (onlineSession.role === "guest") return isGuestControlledSeat(currentPlayerIndex);
+    return true;
+  }
+
+  function shouldSendGuestAction() {
+    return Boolean(!applyingOnlineAction && onlineSession && onlineSession.role === "guest" && isGuestControlledSeat(currentPlayerIndex));
+  }
+
+  function sendOnlineAction(action) {
+    sendOnlineMessage({ type: "action", action });
+  }
+
+  function refreshOnlineTurnControls() {
+    if (!onlineSession || gamePhase === "INIT" || gamePhase === "GAME_OVER") return;
+    const player = players[currentPlayerIndex];
+    const localHuman = isCurrentPlayerLocallyControlled();
+    if (gamePhase === "AWAITING_ROLL") {
+      rollBtn.disabled = !localHuman;
+      if (localHuman) {
+        showRollPrompt();
+      } else if (player && !player.isCPU) {
+        actionText.textContent = `Waiting for ${player.name} to roll.`;
+      }
+    }
   }
 
   function showCpuStepControl(label) {
@@ -1575,15 +1644,119 @@
     renderBoard();
     updateTurnIndicator();
     if (diceRoll[0] && diceRoll[1]) renderDiceResult(diceRoll[0], diceRoll[1]);
-    rollBtn.disabled = true;
     skipShiftBtn.classList.add("hidden");
     clearTempControls();
     applyingRemoteState = false;
+    syncRemoteTurnControls();
   }
 
   function broadcastGameState() {
     if (!onlineSession || onlineSession.role !== "host" || applyingRemoteState) return;
     sendOnlineMessage({ type: "state", state: serializeGameState() });
+  }
+
+  function syncRemoteTurnControls() {
+    if (!onlineSession || onlineSession.role !== "guest") return;
+    clearHighlights();
+    clearTempControls();
+    const player = players[currentPlayerIndex];
+    const controlsThisSeat = isGuestControlledSeat(currentPlayerIndex) && player && !player.isCPU;
+    rollBtn.disabled = !controlsThisSeat || gamePhase !== "AWAITING_ROLL";
+    skipShiftBtn.classList.add("hidden");
+    if (!controlsThisSeat) {
+      if (player && !player.isCPU && gamePhase !== "GAME_OVER") {
+        actionText.textContent = `Waiting for ${player.name}.`;
+      }
+      return;
+    }
+    if (gamePhase === "AWAITING_ROLL") {
+      showRollPrompt();
+    } else if (gamePhase === "AWAITING_MOVE" && diceRoll[0] && diceRoll[1]) {
+      computeValidMoves(diceRoll[0] + diceRoll[1]);
+    } else if (gamePhase === "AWAITING_SHIFT" && diceRoll[0] && diceRoll[1]) {
+      showShiftOptions(diceRoll);
+    } else {
+      rollBtn.disabled = true;
+    }
+  }
+
+  function matchingAwaitingPath(endPos) {
+    if (!endPos) return null;
+    if (!awaitingPaths.length && diceRoll[0] && diceRoll[1]) {
+      const player = players[currentPlayerIndex];
+      const steps = movementStepsForDiceTotal(player ? player.pos : null, diceRoll[0] + diceRoll[1]);
+      awaitingPaths = findPaths(player ? player.pos : null, steps);
+    }
+    return awaitingPaths.find((path) => {
+      const end = path[path.length - 1];
+      return end && end.row === endPos.row && end.col === endPos.col && end.space === endPos.space;
+    }) || null;
+  }
+
+  function matchingPlacementCandidate(target) {
+    if (!tileInHand || !removedCoord || !target) return null;
+    const candidates = computePlacementCandidates(removedCoord.row, removedCoord.col, tileInHand)
+      .map((candidate) => ({ ...candidate, allowRotation: true }));
+    return candidates.find((candidate) => candidate.row === target.row && candidate.col === target.col) || null;
+  }
+
+  // Host-side helpers: trigger the same handler that a human click would fire,
+  // by calling the stored _rotateHandler / _confirmBtn on the live DOM.
+  function rotateActivePlacement() {
+    const tile = document.querySelector(".tile.selectable[data-row][data-col]");
+    if (tile && typeof tile._rotateHandler === "function") tile._rotateHandler();
+  }
+
+  function confirmActivePlacement() {
+    const btn = Array.from(controlsContainer.querySelectorAll(".temp-btn"))
+      .find((b) => b.textContent.trim().startsWith("Confirm Placement"));
+    if (btn) btn.click();
+  }
+
+  function rotateActiveBump() {
+    const tile = document.querySelector(".tile.selectable[data-row][data-col]");
+    if (tile && typeof tile._rotateHandler === "function") tile._rotateHandler();
+  }
+
+  function confirmActiveBumpRotation() {
+    const btn = Array.from(controlsContainer.querySelectorAll(".temp-btn"))
+      .find((b) => b.textContent.trim().startsWith("Confirm Rotation"));
+    if (btn) btn.click();
+  }
+
+  async function handleOnlineAction(action) {
+    if (!onlineSession || onlineSession.role !== "host" || !action) return;
+    if (!isRemoteGuestSeatOnHost(currentPlayerIndex)) return;
+    applyingOnlineAction = true;
+    try {
+      if (action.kind === "roll" && gamePhase === "AWAITING_ROLL") {
+        rollDice();
+      } else if (action.kind === "move" && gamePhase === "AWAITING_MOVE") {
+        const path = matchingAwaitingPath(action.end);
+        if (path) await handleMove(path);
+      } else if (action.kind === "skipShift" && gamePhase === "AWAITING_SHIFT") {
+        completeFirstGameTip("skipShift");
+        endTurn();
+      } else if (action.kind === "shiftTile" && gamePhase === "AWAITING_SHIFT") {
+        performShift(action.row, action.col);
+      } else if (action.kind === "placeTile" && gamePhase === "PLACING_TILE") {
+        const candidate = matchingPlacementCandidate(action);
+        if (candidate) placeTileAt(candidate);
+      } else if (action.kind === "rotatePlacement" && gamePhase === "PLACING_TILE") {
+        rotateActivePlacement();
+      } else if (action.kind === "confirmPlacement" && gamePhase === "PLACING_TILE") {
+        confirmActivePlacement();
+      } else if (action.kind === "bumpRelocate" && gamePhase === "AWAITING_BUMP") {
+        executeBump(action.pos);
+      } else if (action.kind === "rotateBump" && gamePhase === "AWAITING_BUMP") {
+        rotateActiveBump();
+      } else if (action.kind === "confirmBump" && gamePhase === "AWAITING_BUMP") {
+        confirmActiveBumpRotation();
+      }
+    } finally {
+      applyingOnlineAction = false;
+      broadcastGameState();
+    }
   }
 
   function attachOnlineChannel(channel) {
@@ -1592,6 +1765,7 @@
     channel.onmessage = (event) => {
       const message = JSON.parse(event.data);
       if (message.type === "state") applyRemoteGameState(message.state);
+      if (message.type === "action") handleOnlineAction(message.action);
       if (message.type === "hello" && onlineSession && onlineSession.role === "host") {
         sendOnlineMessage({ type: "state", state: serializeGameState() });
       }
@@ -1601,13 +1775,15 @@
       onlineSession.connected = true;
       if (onlineSession.role === "host") {
         showOnlineStatus("Player Connected", `
-          <p>Your peer is connected. Start the local game when you're ready; this first online slice mirrors the host board to them.</p>
+          <p>Your peer is connected. They will control Player 2 from their screen.</p>
           <div class="modal-actions">
             <button type="button" data-close-modal>Got It</button>
           </div>
         `);
+        onlineSession.guestPlayerIndex = 1;
         sendOnlineMessage({ type: "state", state: serializeGameState() });
       } else {
+        onlineSession.playerIndex = 1;
         hideOverlay();
         sendOnlineMessage({ type: "hello" });
       }
@@ -1618,7 +1794,7 @@
     if (!ensureSignalingUrl()) return;
     const pc = createPeerConnection();
     const channel = pc.createDataChannel("culligan-game", { ordered: true });
-    setOnlineSession({ role: "host", pc, channel, code: null, connected: false });
+    setOnlineSession({ role: "host", pc, channel, code: null, connected: false, guestPlayerIndex: 1 });
     attachOnlineChannel(channel);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -1694,7 +1870,7 @@
   async function joinOnlineGame(code) {
     const room = await onlineFetch(`/rooms/${encodeURIComponent(code)}`);
     const pc = createPeerConnection();
-    setOnlineSession({ role: "guest", pc, channel: null, code, connected: false });
+    setOnlineSession({ role: "guest", pc, channel: null, code, connected: false, playerIndex: 1 });
     pc.ondatachannel = (event) => {
       attachOnlineChannel(event.channel);
     };
@@ -2734,6 +2910,7 @@
       }
       gamePhase = "AWAITING_SHIFT";
       showShiftOptions(diceRoll);
+      broadcastGameState();
       return;
     }
     // Map unique final positions to a representative path.
@@ -2793,7 +2970,7 @@
           cellEl.classList.add("selectable");
           // attach handler
           const handler = () => {
-            handleMove(path);
+            requestMove(path);
           };
           // store handler on element for later removal
           cellEl._moveHandler = handler;
@@ -2803,7 +2980,17 @@
       });
       actionText.textContent = "Select a destination to move.";
       maybeShowFirstGameTip("move", { humanOnly: true });
+      broadcastGameState();
     }
+  }
+
+  function requestMove(path) {
+    if (!path) return;
+    if (shouldSendGuestAction()) {
+      const end = path[path.length - 1];
+      sendOnlineAction({ kind: "move", end });
+    }
+    handleMove(path);
   }
 
   /**
@@ -2926,7 +3113,7 @@
         if (cellEl) {
           cellEl.classList.add("selectable");
           const handler = () => {
-            executeBump(pos);
+            requestBumpRelocate(pos);
           };
           cellEl._moveHandler = handler;
           cellEl.addEventListener("click", handler, { once: true });
@@ -2935,6 +3122,14 @@
       });
     actionText.textContent = `${bumper.name} bumped ${victim.name}! Choose where to relocate them (neutral spaces only).`;
     }
+  }
+
+  function requestBumpRelocate(pos) {
+    if (!pos) return;
+    if (shouldSendGuestAction()) {
+      sendOnlineAction({ kind: "bumpRelocate", pos });
+    }
+    executeBump(pos);
   }
 
   /**
@@ -3045,6 +3240,7 @@
         const getBumpTile = () => document.querySelector(`.tile[data-row='${newPos.row}'][data-col='${newPos.col}']`);
         const cycleHandler = () => {
           if (bumpRotationAnimating) return;
+          if (shouldSendGuestAction()) { sendOnlineAction({ kind: "rotateBump" }); return; }
           const activeTile = getBumpTile();
           if (!activeTile) return;
           bumpRotationAnimating = true;
@@ -3093,6 +3289,7 @@
       confirmBtn.textContent = "Confirm Rotation";
       confirmBtn.className = "control-btn temp-btn";
       confirmBtn.addEventListener("click", () => {
+        if (shouldSendGuestAction()) { sendOnlineAction({ kind: "confirmBump" }); return; }
         // Remove highlight and handlers
         clearHighlights();
         // Clear temporary controls and proceed to shift phase
@@ -3166,6 +3363,7 @@
         maybeShowFirstGameTip("skipShift", { humanOnly: true });
         skipShiftBtn.classList.remove("hidden");
         skipShiftBtn.onclick = () => {
+          if (shouldSendGuestAction()) { sendOnlineAction({ kind: "skipShift" }); return; }
           skipShiftBtn.classList.add("hidden");
           actionText.textContent = "";
           completeFirstGameTip("skipShift");
@@ -3211,6 +3409,7 @@
       actionText.textContent = "You may shift a tile. Select one or skip.";
       skipShiftBtn.classList.remove("hidden");
       skipShiftBtn.onclick = () => {
+        if (shouldSendGuestAction()) { sendOnlineAction({ kind: "skipShift" }); return; }
         maybeShowFirstGameTip("skipShift", { humanOnly: true });
         skipShiftBtn.classList.add("hidden");
         actionText.textContent = "";
@@ -3228,6 +3427,7 @@
           tileEl.classList.add("selectable");
           const handler = (event) => {
             cursorLastClientPos = { x: event.clientX, y: event.clientY };
+            if (shouldSendGuestAction()) { sendOnlineAction({ kind: "shiftTile", row: coord.row, col: coord.col }); return; }
             completeFirstGameTip("shift");
             performShift(coord.row, coord.col);
           };
@@ -3564,6 +3764,7 @@
           tileEl.classList.add("placement");
           const handler = (event) => {
             cursorLastClientPos = { x: event.clientX, y: event.clientY };
+            if (shouldSendGuestAction()) { sendOnlineAction({ kind: "placeTile", row: cand.row, col: cand.col }); return; }
             placeTileAt(cand);
           };
           tileEl._placeHandler = handler;
@@ -3664,6 +3865,7 @@
         const getPlacedTile = () => document.querySelector(`.tile[data-row='${cand.row}'][data-col='${cand.col}']`);
         const rotateHandler = () => {
           if (isRotating) return;
+          if (shouldSendGuestAction()) { sendOnlineAction({ kind: "rotatePlacement" }); return; }
           completeFirstGameTip("rotateTile");
           // Guard if no rotations or only one orientation
           if (availableRotations.length === 0) return;
@@ -3714,6 +3916,7 @@
     confirmBtn.textContent = "Confirm Placement";
     confirmBtn.className = "control-btn temp-btn";
     confirmBtn.addEventListener("click", () => {
+      if (shouldSendGuestAction()) { sendOnlineAction({ kind: "confirmPlacement" }); return; }
       completeFirstGameTip("confirmPlacement");
       clearHighlights();
       // Remove temporary controls once confirmed
@@ -4435,7 +4638,13 @@
   });
 
   // Attach roll button handler
-  rollBtn.addEventListener("click", rollDice);
+  rollBtn.addEventListener("click", () => {
+    if (shouldSendGuestAction()) {
+      sendOnlineAction({ kind: "roll" });
+      return; // host will roll and broadcast the result
+    }
+    rollDice();
+  });
 
   if (window.location.hash === "#dev-start-queue") {
     setTimeout(devBootStartQueueGame, 0);

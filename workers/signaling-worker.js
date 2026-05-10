@@ -68,6 +68,12 @@ export default {
     const parts = url.pathname.split("/").filter(Boolean);
 
     try {
+      if (!env.CULLIGAN_ROOMS) {
+        return json({
+          error: "Missing CULLIGAN_ROOMS KV binding. Add a KV namespace binding named CULLIGAN_ROOMS to this Worker.",
+        }, { status: 500 });
+      }
+
       if (request.method === "GET" && parts.length === 0) {
         return json({
           ok: true,
