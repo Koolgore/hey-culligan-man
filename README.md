@@ -6,6 +6,16 @@ A browser-playable version of the 1965 shifting-pipeline board game.
 
 Open `index.html` in a browser, or serve the folder with any static file server.
 
+## Build The Deploy Folder
+
+Run:
+
+```sh
+./build.sh
+```
+
+This creates `dist/` with only the files needed by the live game. Generator scripts, slicers, source scans, and backups stay out of the published site.
+
 ## Deploy The Game
 
 The game is a static site. Deploy the repository root to Cloudflare Pages, GitHub Pages, Netlify, or any static host.
@@ -14,8 +24,8 @@ Recommended:
 
 1. Push this folder to GitHub.
 2. Create a Cloudflare Pages project from the repo.
-3. Use no build command.
-4. Use `/` as the output directory.
+3. Use `./build.sh` as the build command.
+4. Use `dist` as the output directory.
 5. Add your custom domain in Cloudflare Pages.
 
 ## Online Multiplayer
@@ -43,4 +53,3 @@ node sanity-check.js
 ```
 
 `sanity-check.js` validates tile data, rotation behavior, one-shot Soft Water turns, finish behavior, and the initial route.
-
