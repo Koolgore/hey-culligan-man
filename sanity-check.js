@@ -19,6 +19,13 @@ assert(
   "Soft Water must grant exactly one pending extra turn instead of checking where the token still stands",
 );
 assert(
+  /const SETUP_KEY = "hcm-setup-customization-v1"/.test(source) &&
+  /writePersistedJSON\(SETUP_KEY/.test(source) &&
+  /writePersistedJSON\(SETTINGS_KEY/.test(source) &&
+  /writePersistedValue\(FIRST_GAME_TIPS_COMPLETE_KEY/.test(source),
+  "Customization, settings, and first-game tips must use cookie/local fallback persistence",
+);
+assert(
   /\(index \+ steps\) % order\.length \+ order\.length/.test(source),
   "Space-name rotation must normalize negative steps so rotated tiles do not collapse hitboxes into the center",
 );
@@ -186,4 +193,4 @@ const softTile = TILE_DATA.find((tile) => tile.tile_number === "2-5");
   assert(softTile[space] === "S", `2-5 ${space} should be Soft Water`);
 });
 
-console.log(`Sanity checks passed: 36 tiles, reciprocal pipe data, rotations, rotated hitboxes, one-shot soft turns, finish terminal behavior, and initial route (${startDistance} steps).`);
+console.log(`Sanity checks passed: 36 tiles, reciprocal pipe data, rotations, rotated hitboxes, persistence guards, one-shot soft turns, finish terminal behavior, and initial route (${startDistance} steps).`);

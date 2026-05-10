@@ -6,7 +6,7 @@
 // mechanics, and a simple CPU strategy.
 
 (() => {
-  const DEFAULT_SIGNALING_URL = window.CULLIGAN_SIGNALING_URL || localStorage.getItem("culliganSignalingUrl") || "";
+  const DEFAULT_SIGNALING_URL = window.CULLIGAN_SIGNALING_URL || readPersistedValue("culliganSignalingUrl") || "";
   const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
   const TILE_BOUNDS = window.HCM_TILE_BOUNDS || {};
   const ASSET_VERSION = window.CULLIGAN_ASSET_VERSION || "20260509-prelaunch";
@@ -808,6 +808,7 @@
   // Delay (in milliseconds) between CPU actions to make its play feel more natural
   // Small pause so CPU actions feel deliberate without dragging.
   const SETTINGS_KEY = "hcm-game-settings-v1";
+  const SETUP_KEY = "hcm-setup-customization-v1";
   const DEFAULT_SETTINGS = {
     cpuPace: "normal",
     cameraMotion: "smooth",
@@ -818,22 +819,14 @@
   const FIRST_TIP_CPU_DELAY = 3300;
 
   function readGameSettings() {
-    try {
-      return {
-        ...DEFAULT_SETTINGS,
-        ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") || {}),
-      };
-    } catch (error) {
-      return { ...DEFAULT_SETTINGS };
-    }
+    return {
+      ...DEFAULT_SETTINGS,
+      ...readPersistedJSON(SETTINGS_KEY, {}),
+    };
   }
 
   function saveGameSettings() {
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(gameSettings));
-    } catch (error) {
-      // Settings are nice-to-have; blocked storage should not affect play.
-    }
+    writePersistedJSON(SETTINGS_KEY, gameSettings);
   }
 
   function cpuDelay() {
@@ -1240,12 +1233,8 @@
     const resetTips = document.getElementById("reset-tips-setting");
     if (resetTips) {
       resetTips.addEventListener("click", () => {
-        try {
-          localStorage.removeItem(FIRST_GAME_TIPS_COMPLETE_KEY);
-          localStorage.removeItem(FIRST_GAME_TIPS_SEEN_KEY);
-        } catch (error) {
-          // Ignore storage failures.
-        }
+        removePersistedValue(FIRST_GAME_TIPS_COMPLETE_KEY);
+        removePersistedValue(FIRST_GAME_TIPS_SEEN_KEY);
         firstGameTipsSeen = new Set();
         firstGameTipQueue = [];
         hideFirstGameTip();
@@ -1263,7 +1252,7 @@
           disablePlayerMaximums: data.get("disablePlayerMaximums") === "on",
         };
         saveGameSettings();
-        readSetupConfig();
+        saveSetupSnapshot(readSetupConfig());
         hideOverlay();
         recenterBoardCamera(true);
       });
@@ -1330,8 +1319,7 @@
 
   function readStoredTipKeys() {
     try {
-      const raw = localStorage.getItem(FIRST_GAME_TIPS_SEEN_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
+      const parsed = readPersistedJSON(FIRST_GAME_TIPS_SEEN_KEY, []);
       return Array.isArray(parsed) ? parsed : [];
     } catch (error) {
       return [];
@@ -1339,19 +1327,11 @@
   }
 
   function persistSeenTips() {
-    try {
-      localStorage.setItem(FIRST_GAME_TIPS_SEEN_KEY, JSON.stringify([...firstGameTipsSeen]));
-    } catch (error) {
-      // Private browsing or locked-down storage should not affect play.
-    }
+    writePersistedJSON(FIRST_GAME_TIPS_SEEN_KEY, [...firstGameTipsSeen]);
   }
 
   function hasCompletedFirstGameTips() {
-    try {
-      return localStorage.getItem(FIRST_GAME_TIPS_COMPLETE_KEY) === "1";
-    } catch (error) {
-      return false;
-    }
+    return readPersistedValue(FIRST_GAME_TIPS_COMPLETE_KEY) === "1";
   }
 
   function beginFirstGameTips() {
@@ -1369,11 +1349,7 @@
     firstGameTipShowing = false;
     firstGameTipCurrentKey = null;
     hideFirstGameTip();
-    try {
-      localStorage.setItem(FIRST_GAME_TIPS_COMPLETE_KEY, "1");
-    } catch (error) {
-      // Ignore storage failures.
-    }
+    writePersistedValue(FIRST_GAME_TIPS_COMPLETE_KEY, "1");
   }
 
   function hideFirstGameTip() {
@@ -1462,7 +1438,11 @@
 
   function setSignalingUrl(value) {
     signalingUrl = normalizeSignalingUrl(value);
-    if (signalingUrl) localStorage.setItem("culliganSignalingUrl", signalingUrl);
+    if (signalingUrl) {
+      writePersistedValue("culliganSignalingUrl", signalingUrl);
+    } else {
+      removePersistedValue("culliganSignalingUrl");
+    }
   }
 
   function ensureSignalingUrl() {
@@ -4012,6 +3992,66 @@
     return name ? name.slice(0, 22) : fallback;
   }
 
+  function normalizeSkinIndex(value, fallback = 0) {
+    const skin = Number(value);
+    if (!Number.isFinite(skin)) return fallback;
+    return Math.max(0, Math.min(TOKEN_SKIN_COUNT - 1, Math.round(skin)));
+  }
+
+  function normalizeTokenColour(value, fallback) {
+    const colour = String(value || "").trim();
+    return /^#[0-9a-f]{6}$/i.test(colour) ? colour : fallback;
+  }
+
+  function sanitizeSetupNames(names, config) {
+    const source = names || {};
+    const humanSeats = Math.max(0, config.playerCount - config.cpuCount);
+    const result = { humans: [], cpus: [], humanSkins: [], cpuSkins: [], humanColours: [], cpuColours: [] };
+    for (let i = 0; i < humanSeats; i++) {
+      const fallbackSkin = i % TOKEN_SKIN_COUNT;
+      const fallbackColour = PLAYER_COLOURS[i % PLAYER_COLOURS.length];
+      result.humans.push(cleanPlayerName(source.humans?.[i], `Player ${i + 1}`));
+      result.humanSkins.push(normalizeSkinIndex(source.humanSkins?.[i], fallbackSkin));
+      result.humanColours.push(normalizeTokenColour(source.humanColours?.[i], fallbackColour));
+    }
+    for (let i = 0; i < config.cpuCount; i++) {
+      const seatIndex = humanSeats + i;
+      const fallbackSkin = seatIndex % TOKEN_SKIN_COUNT;
+      const fallbackColour = PLAYER_COLOURS[seatIndex % PLAYER_COLOURS.length];
+      result.cpus.push(cleanPlayerName(source.cpus?.[i], `CPU ${i + 1}`));
+      result.cpuSkins.push(normalizeSkinIndex(source.cpuSkins?.[i], fallbackSkin));
+      result.cpuColours.push(normalizeTokenColour(source.cpuColours?.[i], fallbackColour));
+    }
+    return result;
+  }
+
+  function readSavedSetup() {
+    const saved = readPersistedJSON(SETUP_KEY, null);
+    if (!saved || typeof saved !== "object") return null;
+    const validModes = new Set(["single", "local", "online"]);
+    const mode = validModes.has(saved.mode) ? saved.mode : "single";
+    const config = normalizeGameConfig(saved.playerCount, saved.cpuCount);
+    return {
+      mode,
+      config: {
+        ...config,
+        names: sanitizeSetupNames(saved.names, config),
+      },
+    };
+  }
+
+  function saveSetupSnapshot(config = null, names = null) {
+    if (!playerCountInput || !cpuCountInput) return;
+    const setupConfig = config || configForMode(setupMode);
+    const setupNames = sanitizeSetupNames(names || readSetupNames(setupConfig), setupConfig);
+    writePersistedJSON(SETUP_KEY, {
+      mode: setupMode,
+      playerCount: setupConfig.playerCount,
+      cpuCount: setupConfig.cpuCount,
+      names: setupNames,
+    });
+  }
+
   function readSetupNames(config = readSetupConfig()) {
     const humanSeats = Math.max(0, config.playerCount - config.cpuCount);
     const names = { humans: [], cpus: [], humanSkins: [], cpuSkins: [], humanColours: [], cpuColours: [] };
@@ -4091,6 +4131,7 @@
         chooser.dataset.colour = colour;
         chooserIcon.style.setProperty("--chooser-colour", colour);
         chooserIcon.style.setProperty("--chooser-icon", `url("${tokenIconUrl(skin)}")`);
+        saveSetupSnapshot(configForMode(setupMode));
       };
 
       chooser.addEventListener("click", (event) => {
@@ -4188,6 +4229,7 @@
         }, 320);
       }
     }
+    saveSetupSnapshot(config);
   }
 
   function applySetupConfig(config) {
@@ -4219,6 +4261,7 @@
     const playerNames = names || readSetupNames(config);
     lastGameConfig = { ...config, names: playerNames };
     applySetupConfig({ ...config, names: playerNames });
+    saveSetupSnapshot(config, playerNames);
     hideOverlay();
     initBoard();
     initPlayers(config.playerCount, config.cpuCount, playerNames);
@@ -4260,12 +4303,30 @@
     });
   }
 
+  const handleSetupCountInput = () => {
+    const config = readSetupConfig();
+    saveSetupSnapshot(config);
+  };
+
   if (playerCountInput) {
-    playerCountInput.addEventListener("input", readSetupConfig);
+    playerCountInput.addEventListener("input", handleSetupCountInput);
   }
 
   if (cpuCountInput) {
-    cpuCountInput.addEventListener("input", readSetupConfig);
+    cpuCountInput.addEventListener("input", handleSetupCountInput);
+  }
+
+  if (nameFieldsContainer) {
+    nameFieldsContainer.addEventListener("input", (event) => {
+      if (event.target && event.target.matches("[data-name-kind]")) {
+        saveSetupSnapshot(configForMode(setupMode));
+      }
+    });
+    nameFieldsContainer.addEventListener("change", (event) => {
+      if (event.target && event.target.matches("[data-name-kind]")) {
+        saveSetupSnapshot(configForMode(setupMode));
+      }
+    });
   }
 
   document.querySelectorAll(".number-step").forEach((button) => {
@@ -4303,6 +4364,11 @@
     });
   });
 
+  const savedSetup = readSavedSetup();
+  if (savedSetup) {
+    setupMode = savedSetup.mode;
+    lastGameConfig = savedSetup.config;
+  }
   applySetupConfig(lastGameConfig);
   setSetupMode(setupMode);
 
