@@ -24,7 +24,7 @@ body {
   background-repeat: repeat;
   background-size: auto, 560px 560px;
   color: #1f2933;
-  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
