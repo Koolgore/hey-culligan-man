@@ -4580,7 +4580,10 @@
   setSetupMode(setupMode);
 
   modeButtons.forEach((button) => {
-    button.addEventListener("click", () => setSetupMode(button.dataset.mode));
+    button.addEventListener("click", () => {
+      if (button.dataset.mode === "online") return; // Coming Soon — not yet available
+      setSetupMode(button.dataset.mode);
+    });
   });
 
   if (menuInstructionsBtn) {

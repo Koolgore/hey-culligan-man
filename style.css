@@ -283,13 +283,15 @@ body.game-active::before {
 .mode-btn {
   border: 1px solid transparent;
   border-radius: 5px;
-  padding: 0.58rem 0.5rem;
+  padding: 0.58rem 0.3rem;
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 850;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.2;
   cursor: pointer;
   box-shadow: none;
   transition:
@@ -298,6 +300,28 @@ body.game-active::before {
     border-color 0.14s ease,
     color 0.14s ease,
     filter 0.18s ease;
+}
+
+/* Online Multiplayer — Coming Soon */
+.mode-btn[data-mode="online"] {
+  position: relative;
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mode-btn[data-mode="online"]::after {
+  content: "Coming Soon";
+  position: absolute;
+  bottom: -0.05rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.52rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+  white-space: nowrap;
+  opacity: 0.7;
 }
 
 .mode-btn.active {
@@ -940,8 +964,8 @@ body.game-active::before {
   }
 
   .mode-btn {
-    padding: 0.52rem 0.35rem;
-    font-size: clamp(0.68rem, 2.8vw, 0.82rem);
+    padding: 0.52rem 0.25rem;
+    font-size: clamp(0.72rem, 2.6vw, 0.85rem);
   }
 
   .setup-panel .menu-btn,
@@ -961,6 +985,44 @@ body.game-active::before {
   .name-fields {
     grid-template-columns: 1fr;
     width: min(300px, 100%);
+  }
+}
+
+@media (max-width: 480px) {
+  #main-menu {
+    padding: 0.8rem 0.85rem 1rem;
+    width: calc(100vw - 1.2rem);
+  }
+
+  .menu-banner {
+    max-height: 130px;
+  }
+
+  .setup-panel {
+    gap: 0.65rem;
+  }
+
+  .mode-btn {
+    padding: 0.48rem 0.2rem;
+    font-size: clamp(0.68rem, 3.2vw, 0.8rem);
+  }
+
+  /* Stack name fields single column, full width */
+  .name-fields {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .name-field-row > input {
+    font-size: 0.95rem;
+  }
+
+  .primary-start {
+    width: 100%;
+  }
+
+  .secondary-menu-actions {
+    gap: 0.25rem;
   }
 }
 
@@ -2161,7 +2223,12 @@ body.game-active::before {
 }
 
 @media (max-width: 640px) {
+  .game-banner {
+    display: none;
+  }
+
   #top-panel {
+    grid-template-columns: auto 1fr;
     gap: 0.45rem;
     padding-inline: 0.55rem;
   }
